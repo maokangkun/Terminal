@@ -37,9 +37,17 @@ struct Config {
     max_width: Option<usize>,
     max_height: Option<usize>,
     max_colors: usize,
+    protocol: Protocol,
     newline: bool,
     cursor_mode: CursorMode,
     cell_height: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Protocol {
+    Auto,
+    Sixel,
+    Blocks,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,10 +67,16 @@ fn main() {
 fn run() -> Result<(), String> {
     let config = parse_args(env::args().skip(1).collect())?;
     let mut image = load_image(&config.input)?;
-    fit_image(&mut image, config.max_width, config.max_height);
-    let sixel = pixels_to_sixel(&image, config.max_colors)?;
     let is_terminal = io::stdout().is_terminal();
-    let (cursor_prefix, cursor_suffix) = if is_terminal {
+    let protocol = resolve_protocol(config.protocol, is_terminal);
+    let max_width = effective_max_width(config.max_width, protocol, is_terminal);
+    fit_image(&mut image, max_width, config.max_height);
+    let output = match protocol {
+        Protocol::Sixel => pixels_to_sixel(&image, config.max_colors)?,
+        Protocol::Blocks => pixels_to_blocks(&image),
+        Protocol::Auto => unreachable!("protocol was resolved"),
+    };
+    let (cursor_prefix, cursor_suffix) = if is_terminal && protocol == Protocol::Sixel {
         cursor_sequences(config.cursor_mode, image.height, config.cell_height)
     } else {
         (String::new(), String::new())
@@ -72,7 +86,7 @@ fn run() -> Result<(), String> {
         .write_all(cursor_prefix.as_bytes())
         .map_err(|err| err.to_string())?;
     stdout
-        .write_all(sixel.as_bytes())
+        .write_all(output.as_bytes())
         .map_err(|err| err.to_string())?;
     stdout
         .write_all(cursor_suffix.as_bytes())
@@ -91,6 +105,7 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
     let mut max_width = None;
     let mut max_height = None;
     let mut max_colors = 96usize;
+    let mut protocol = Protocol::Auto;
     let mut newline = false;
     let mut cursor_mode = CursorMode::None;
     let mut cell_height = parse_cell_height_env()?;
@@ -120,6 +135,10 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
             }
             "--max-colors" => {
                 max_colors = parse_next_usize(&args, &mut index, "--max-colors")?.clamp(2, 256)
+            }
+            "--protocol" => {
+                index += 1;
+                protocol = parse_protocol(args.get(index).ok_or("--protocol needs a value")?)?;
             }
             "--newline" => newline = true,
             "--cursor-mode" => {
@@ -163,6 +182,7 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
         max_width,
         max_height,
         max_colors,
+        protocol,
         newline,
         cursor_mode,
         cell_height,
@@ -220,6 +240,17 @@ fn parse_cursor_mode(value: &str) -> Result<CursorMode, String> {
     }
 }
 
+fn parse_protocol(value: &str) -> Result<Protocol, String> {
+    match value {
+        "auto" => Ok(Protocol::Auto),
+        "sixel" => Ok(Protocol::Sixel),
+        "blocks" => Ok(Protocol::Blocks),
+        other => Err(format!(
+            "unknown protocol: {other} (expected auto, sixel, or blocks)"
+        )),
+    }
+}
+
 fn print_help() {
     println!(
         "Usage:
@@ -235,13 +266,14 @@ Options:
       --max-width N    Downscale to fit within N columns of pixels
       --max-height N   Downscale to fit within N rows of pixels
       --max-colors N   Palette size, clamped to 2..256 (default: 96)
-      --newline        Print a trailing newline after the Sixel sequence
+      --protocol P     Output protocol: auto, sixel, blocks (default: auto)
+      --newline        Print a trailing newline after output
       --cursor-mode M  Cursor handling: none, newline, restore (default: none)
       --no-cursor-fix  Alias for --cursor-mode none
       --cell-height N  Cell height for --cursor-mode restore
   -h, --help           Show this help
 
-Encodes images as a Sixel escape sequence for compatible terminals."
+Encodes images for terminal display."
     );
 }
 
@@ -491,6 +523,68 @@ fn cursor_sequences(
     }
 }
 
+fn resolve_protocol(protocol: Protocol, is_terminal: bool) -> Protocol {
+    match protocol {
+        Protocol::Auto if is_terminal && !terminal_likely_supports_sixel() => Protocol::Blocks,
+        Protocol::Auto => Protocol::Sixel,
+        explicit => explicit,
+    }
+}
+
+fn effective_max_width(
+    configured_max_width: Option<usize>,
+    protocol: Protocol,
+    is_terminal: bool,
+) -> Option<usize> {
+    if configured_max_width.is_some() || protocol != Protocol::Blocks || !is_terminal {
+        return configured_max_width;
+    }
+    terminal_columns().map(|columns| (columns / 2).max(1))
+}
+
+fn terminal_likely_supports_sixel() -> bool {
+    if env_flag("SIXRS_FORCE_SIXEL") {
+        return true;
+    }
+    if env_flag("SIXRS_NO_SIXEL") {
+        return false;
+    }
+
+    let term_program = env::var("TERM_PROGRAM").unwrap_or_default();
+    if matches!(term_program.as_str(), "Apple_Terminal" | "vscode") {
+        return false;
+    }
+    if matches!(
+        term_program.as_str(),
+        "iTerm.app" | "WezTerm" | "mintty" | "rio" | "ghostty" | "Windows Terminal"
+    ) {
+        return true;
+    }
+    if env::var_os("WEZTERM_EXECUTABLE").is_some()
+        || env::var_os("KITTY_WINDOW_ID").is_some()
+        || env::var_os("KONSOLE_VERSION").is_some()
+        || env::var_os("WT_SESSION").is_some()
+    {
+        return true;
+    }
+
+    let term = env::var("TERM").unwrap_or_default().to_ascii_lowercase();
+    if term == "dumb" || term.contains("linux") {
+        return false;
+    }
+    term.contains("sixel")
+        || term.contains("xterm")
+        || term.contains("mlterm")
+        || term.contains("foot")
+}
+
+fn env_flag(name: &str) -> bool {
+    matches!(
+        env::var(name).as_deref(),
+        Ok("1") | Ok("true") | Ok("yes") | Ok("on")
+    )
+}
+
 #[cfg(unix)]
 fn terminal_cell_height() -> Option<usize> {
     let mut size = libc::winsize {
@@ -508,9 +602,78 @@ fn terminal_cell_height() -> Option<usize> {
     validate_cell_height((height / rows).max(1))
 }
 
+#[cfg(unix)]
+fn terminal_columns() -> Option<usize> {
+    let mut size = libc::winsize {
+        ws_row: 0,
+        ws_col: 0,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let result = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut size) };
+    if result != 0 || size.ws_col == 0 {
+        return None;
+    }
+    Some(usize::from(size.ws_col))
+}
+
+#[cfg(not(unix))]
+fn terminal_columns() -> Option<usize> {
+    env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|columns| *columns > 0)
+}
+
 #[cfg(not(unix))]
 fn terminal_cell_height() -> Option<usize> {
     None
+}
+
+fn pixels_to_blocks(image: &Image) -> String {
+    let mut output = String::new();
+    for y in (0..image.height).step_by(2) {
+        for x in 0..image.width {
+            let top = image.pixels[y * image.width + x];
+            let bottom = if y + 1 < image.height {
+                image.pixels[(y + 1) * image.width + x]
+            } else {
+                None
+            };
+            push_block_pixel(&mut output, top, bottom);
+        }
+        output.push_str(ESC);
+        output.push_str("[0m");
+        output.push('\n');
+    }
+    output
+}
+
+fn push_block_pixel(output: &mut String, top: Option<Rgb>, bottom: Option<Rgb>) {
+    match (top, bottom) {
+        (Some(fg), Some(bg)) => {
+            push_fg(output, fg);
+            push_bg(output, bg);
+            output.push('▀');
+        }
+        (Some(fg), None) => {
+            push_fg(output, fg);
+            output.push('▀');
+        }
+        (None, Some(fg)) => {
+            push_fg(output, fg);
+            output.push('▄');
+        }
+        (None, None) => output.push(' '),
+    }
+}
+
+fn push_fg(output: &mut String, color: Rgb) {
+    output.push_str(&format!("{ESC}[38;2;{};{};{}m", color.r, color.g, color.b));
+}
+
+fn push_bg(output: &mut String, color: Rgb) {
+    output.push_str(&format!("{ESC}[48;2;{};{};{}m", color.r, color.g, color.b));
 }
 
 fn pixels_to_sixel(image: &Image, max_colors: usize) -> Result<String, String> {

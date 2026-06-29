@@ -1,7 +1,8 @@
 # sixrs
 
-`sixrs` is a fast command line tool for encoding images as Sixel escape
-sequences so they can be displayed directly in compatible terminals.
+`sixrs` is a fast command line tool for displaying images in terminals. It uses
+Sixel when available and can fall back to a Unicode half-block renderer in
+terminals that do not support Sixel.
 
 ![sixrs rendering an image in a terminal](asset/sixrs_screenshot.png)
 
@@ -18,6 +19,12 @@ Install the published crate from crates.io:
 
 ```bash
 cargo install sixrs
+```
+
+Upgrade an existing install:
+
+```bash
+cargo install sixrs --force
 ```
 
 Or install from a local checkout:
@@ -64,6 +71,15 @@ Limit output size and palette:
 sixrs frame.ppm --max-width 1200 --max-height 800 --max-colors 64 --newline
 ```
 
+Force Unicode half-block output:
+
+```bash
+sixrs image.jpg --protocol blocks --max-width 100
+```
+
+When `blocks` output is used in an interactive terminal and `--max-width` is
+not set, `sixrs` defaults to half of the terminal width.
+
 ## Options
 
 ```text
@@ -73,7 +89,8 @@ sixrs frame.ppm --max-width 1200 --max-height 800 --max-colors 64 --newline
     --max-width N    Downscale to fit within N columns of pixels
     --max-height N   Downscale to fit within N rows of pixels
     --max-colors N   Palette size, clamped to 2..256 (default: 96)
-    --newline        Print a trailing newline after the Sixel sequence
+    --protocol P     Output protocol: auto, sixel, blocks (default: auto)
+    --newline        Print a trailing newline after output
     --cursor-mode M  Cursor handling: none, newline, restore (default: none)
     --no-cursor-fix  Alias for --cursor-mode none
     --cell-height N  Cell height for --cursor-mode restore
@@ -82,9 +99,25 @@ sixrs frame.ppm --max-width 1200 --max-height 800 --max-colors 64 --newline
 
 ## Terminal Support
 
-The output is a Sixel escape sequence. You need a terminal emulator with Sixel
-support, such as WezTerm, mlterm, foot, or recent xterm builds with Sixel
-enabled.
+In `auto` mode, `sixrs` uses Sixel in terminals that are likely to support it,
+such as Windows Terminal, WezTerm, mlterm, foot, or recent xterm builds with
+Sixel enabled. In terminals that do not support Sixel, such as macOS
+Terminal.app, it falls back to Unicode half-block output using `▀`, `▄`, and
+`█`-style 24-bit ANSI colors.
+
+You can force either renderer:
+
+```bash
+sixrs image.jpg --protocol sixel
+sixrs image.jpg --protocol blocks --max-width 100
+```
+
+Environment overrides are also available:
+
+```bash
+SIXRS_FORCE_SIXEL=1 sixrs image.jpg
+SIXRS_NO_SIXEL=1 sixrs image.jpg
+```
 
 By default, `sixrs` does not adjust the text cursor after writing a Sixel image.
 This keeps output compatible with terminals and tmux panes that attach graphics
