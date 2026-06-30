@@ -13,6 +13,9 @@ low-overhead raw pixel input paths:
 - raw RGB bytes from stdin
 - raw RGBA bytes from stdin, with fully transparent pixels skipped
 
+Transparent PNG/RGBA input is preserved in both Sixel and Unicode block output
+when the terminal supports transparent/default backgrounds.
+
 ## Install
 
 Install the published crate from crates.io:

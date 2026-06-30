@@ -9,6 +9,7 @@ const ST: &str = "\x1b\\";
 const FALLBACK_CELL_HEIGHT: usize = 16;
 const MIN_CELL_HEIGHT: usize = 7;
 const MAX_CELL_HEIGHT: usize = 64;
+const TRANSPARENT_ALPHA_THRESHOLD: u8 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct Rgb {
@@ -353,7 +354,7 @@ fn raw_rgba_to_image(data: &[u8], width: usize, height: usize) -> Result<Image, 
     let pixels = data
         .chunks_exact(4)
         .map(|chunk| {
-            if chunk[3] == 0 {
+            if chunk[3] <= TRANSPARENT_ALPHA_THRESHOLD {
                 None
             } else {
                 Some(Rgb {
@@ -657,14 +658,19 @@ fn push_block_pixel(output: &mut String, top: Option<Rgb>, bottom: Option<Rgb>) 
             output.push('▀');
         }
         (Some(fg), None) => {
+            push_reset_bg(output);
             push_fg(output, fg);
             output.push('▀');
         }
         (None, Some(fg)) => {
+            push_reset_bg(output);
             push_fg(output, fg);
             output.push('▄');
         }
-        (None, None) => output.push(' '),
+        (None, None) => {
+            push_reset(output);
+            output.push(' ');
+        }
     }
 }
 
@@ -674,6 +680,16 @@ fn push_fg(output: &mut String, color: Rgb) {
 
 fn push_bg(output: &mut String, color: Rgb) {
     output.push_str(&format!("{ESC}[48;2;{};{};{}m", color.r, color.g, color.b));
+}
+
+fn push_reset_bg(output: &mut String) {
+    output.push_str(ESC);
+    output.push_str("[49m");
+}
+
+fn push_reset(output: &mut String) {
+    output.push_str(ESC);
+    output.push_str("[0m");
 }
 
 fn pixels_to_sixel(image: &Image, max_colors: usize) -> Result<String, String> {
@@ -693,7 +709,7 @@ fn pixels_to_sixel(image: &Image, max_colors: usize) -> Result<String, String> {
 
     let mut parts = String::new();
     parts.push_str(ESC);
-    parts.push_str("Pq");
+    parts.push_str("P0;1;0q");
     parts.push_str(&format!("\"1;1;{};{}", image.width, image.height));
     for (index, color) in palette.iter().enumerate() {
         parts.push_str(&format!(

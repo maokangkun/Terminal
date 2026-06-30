@@ -1,6 +1,6 @@
 [package]
 name = "sixrs"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "A fast image to Sixel encoder for terminals"
 license = "Apache-2.0"
