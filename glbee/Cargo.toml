@@ -1,0 +1,21 @@
+[package]
+name = "glbee"
+version = "0.1.0"
+edition = "2024"
+description = "Fast terminal previewer for GLB/3D files"
+license = "Apache-2.0"
+repository = "https://github.com/maokangkun/Terminal"
+readme = "README.md"
+
+[dependencies]
+crossterm = "0.29"
+gltf = { version = "1.4", features = ["import"] }
+libc = "0.2"
+png = "0.17"
+
+[profile.dev]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
