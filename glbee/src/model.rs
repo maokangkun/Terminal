@@ -30,10 +30,36 @@ pub struct Model {
     pub textures: Vec<Texture>,
     pub center: Vec3,
     pub radius: f32,
+    pub meta: ModelMeta,
+}
+
+#[derive(Debug)]
+pub struct ModelMeta {
+    pub file_name: String,
+    pub format: String,
+    pub file_size: u64,
+    pub scenes: usize,
+    pub nodes: usize,
+    pub meshes: usize,
+    pub materials: usize,
+    pub textures: usize,
+    pub animations: usize,
+    pub primitives: usize,
+    pub vertices: usize,
+    pub triangles: usize,
+    pub radius: f32,
+}
+
+#[derive(Default)]
+struct LoadStats {
+    primitives: usize,
+    vertices: usize,
 }
 
 pub fn load_glb(path: &Path) -> Result<Model, String> {
+    let file_size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
     let (document, buffers, images) = gltf::import(path).map_err(|err| err.to_string())?;
+    let document_stats = DocumentStats::from_document(&document);
     let textures = images
         .iter()
         .map(texture_from_image)
@@ -41,6 +67,7 @@ pub fn load_glb(path: &Path) -> Result<Model, String> {
     let mut triangles = Vec::new();
     let mut min = Vec3::splat(f32::INFINITY);
     let mut max = Vec3::splat(f32::NEG_INFINITY);
+    let mut stats = LoadStats::default();
 
     for scene in document.scenes() {
         for node in scene.nodes() {
@@ -51,6 +78,7 @@ pub fn load_glb(path: &Path) -> Result<Model, String> {
                 &mut triangles,
                 &mut min,
                 &mut max,
+                &mut stats,
             )?;
         }
     }
@@ -60,12 +88,56 @@ pub fn load_glb(path: &Path) -> Result<Model, String> {
 
     let center = (min + max) * 0.5;
     let radius = (max - center).length().max(0.001);
+    let meta = ModelMeta {
+        file_name: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("model")
+            .to_string(),
+        format: path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("glb")
+            .to_ascii_lowercase(),
+        file_size,
+        scenes: document_stats.scenes,
+        nodes: document_stats.nodes,
+        meshes: document_stats.meshes,
+        materials: document_stats.materials,
+        textures: textures.len(),
+        animations: document_stats.animations,
+        primitives: stats.primitives,
+        vertices: stats.vertices,
+        triangles: triangles.len(),
+        radius,
+    };
     Ok(Model {
         triangles,
         textures,
         center,
         radius,
+        meta,
     })
+}
+
+struct DocumentStats {
+    scenes: usize,
+    nodes: usize,
+    meshes: usize,
+    materials: usize,
+    animations: usize,
+}
+
+impl DocumentStats {
+    fn from_document(document: &gltf::Document) -> Self {
+        Self {
+            scenes: document.scenes().count(),
+            nodes: document.nodes().count(),
+            meshes: document.meshes().count(),
+            materials: document.materials().count(),
+            animations: document.animations().count(),
+        }
+    }
 }
 
 fn collect_node(
@@ -75,6 +147,7 @@ fn collect_node(
     triangles: &mut Vec<Triangle>,
     min: &mut Vec3,
     max: &mut Vec3,
+    stats: &mut LoadStats,
 ) -> Result<(), String> {
     let transform = parent * Mat4::from_array(node.transform().matrix());
     if let Some(mesh) = node.mesh() {
@@ -82,6 +155,7 @@ fn collect_node(
             if primitive.mode() != gltf::mesh::Mode::Triangles {
                 continue;
             }
+            stats.primitives += 1;
             let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
             let positions = reader
                 .read_positions()
@@ -95,6 +169,7 @@ fn collect_node(
                 .read_indices()
                 .map(|items| items.into_u32().collect::<Vec<_>>())
                 .unwrap_or_else(|| (0..positions.len() as u32).collect());
+            stats.vertices += positions.len();
             let texcoords = reader
                 .read_tex_coords(0)
                 .map(|items| items.into_f32().collect::<Vec<_>>());
@@ -148,7 +223,7 @@ fn collect_node(
         }
     }
     for child in node.children() {
-        collect_node(&child, transform, buffers, triangles, min, max)?;
+        collect_node(&child, transform, buffers, triangles, min, max, stats)?;
     }
     Ok(())
 }

@@ -11,7 +11,7 @@ use crossterm::event::{
 use crossterm::execute;
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 
-use crate::model::Model;
+use crate::model::{Model, ModelMeta};
 use crate::protocols::{Image, Placement, Protocol, Rgb, write_image_to};
 use crate::renderer::{DEFAULT_BACKGROUND, View, render_model};
 
@@ -93,6 +93,7 @@ pub fn interactive_loop(
             execute!(stdout, MoveTo(0, 0)).map_err(|err| err.to_string())?;
             draw_frame(
                 &mut stdout,
+                model,
                 &target,
                 protocol,
                 max_colors,
@@ -498,6 +499,7 @@ fn scaled_dimension(value: usize, scale: f32, minimum: usize) -> usize {
 
 fn draw_frame<W: Write>(
     output: &mut W,
+    model: &Model,
     target: &RenderTarget,
     protocol: Protocol,
     max_colors: usize,
@@ -526,6 +528,7 @@ fn draw_frame<W: Write>(
         write_at(output, columns - 1, y, "│")?;
     }
 
+    draw_model_meta(output, target, &model.meta)?;
     write_at(output, 0, footer_rule_y, &rule(columns, '├', '─', '┤'))?;
     write_at(output, 0, footer_one_y, &framed_line(columns, &footer.0))?;
     write_at(output, 0, footer_two_y, &framed_line(columns, &footer.1))?;
@@ -579,6 +582,62 @@ fn titled_rule(width: usize, title: &str) -> String {
     format!("┌{}{}{}┐", "─".repeat(left), title, "─".repeat(right))
 }
 
+fn draw_model_meta<W: Write>(
+    output: &mut W,
+    target: &RenderTarget,
+    meta: &ModelMeta,
+) -> Result<(), String> {
+    let columns = target.term_columns;
+    let footer_rule_y = target.term_rows.saturating_sub(4);
+    if columns < 24 || footer_rule_y <= 2 {
+        return Ok(());
+    }
+
+    let lines = model_meta_lines(meta);
+    let width = lines
+        .iter()
+        .map(|line| line.len())
+        .max()
+        .unwrap_or(0)
+        .min(columns.saturating_sub(4))
+        .min(54);
+    if width == 0 {
+        return Ok(());
+    }
+
+    for (index, line) in lines
+        .iter()
+        .take(footer_rule_y.saturating_sub(1))
+        .enumerate()
+    {
+        let text = truncate_to_width(line, width);
+        let x = columns.saturating_sub(text.len() + 2);
+        write_at(output, x, 1 + index, &text)?;
+    }
+    Ok(())
+}
+
+fn model_meta_lines(meta: &ModelMeta) -> Vec<String> {
+    vec![
+        format!("file {}", meta.file_name),
+        format!("fmt {}  size {}", meta.format, human_size(meta.file_size)),
+        format!(
+            "mesh {}  prim {}  mat {}  tex {}",
+            meta.meshes, meta.primitives, meta.materials, meta.textures
+        ),
+        format!(
+            "tri {}  vtx {}",
+            compact_count(meta.triangles),
+            compact_count(meta.vertices)
+        ),
+        format!(
+            "node {}  scene {}  anim {}",
+            meta.nodes, meta.scenes, meta.animations
+        ),
+        format!("radius {:.2}", meta.radius),
+    ]
+}
+
 fn rule(width: usize, left: char, fill: char, right: char) -> String {
     if width <= 2 {
         return String::new();
@@ -605,6 +664,28 @@ fn truncate_to_width(text: &str, width: usize) -> String {
     let mut truncated = text.chars().take(width - 1).collect::<String>();
     truncated.push('~');
     truncated
+}
+
+fn compact_count(value: usize) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}m", value as f32 / 1_000_000.0)
+    } else if value >= 10_000 {
+        format!("{:.1}k", value as f32 / 1_000.0)
+    } else {
+        value.to_string()
+    }
+}
+
+fn human_size(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    if bytes as f64 >= MIB {
+        format!("{:.1}MiB", bytes as f64 / MIB)
+    } else if bytes as f64 >= KIB {
+        format!("{:.1}KiB", bytes as f64 / KIB)
+    } else {
+        format!("{bytes}B")
+    }
 }
 
 fn write_at<W: Write>(output: &mut W, x: usize, y: usize, text: &str) -> Result<(), String> {
