@@ -44,7 +44,7 @@ pub fn parse_args(args: Vec<String>) -> Result<Config, String> {
     }
 
     Ok(Config {
-        path: path.ok_or("usage: glbee MODEL.glb [--protocol auto|kitty|iterm2|sixel|blocks]")?,
+        path: path.ok_or("usage: glbee MODEL [--protocol auto|kitty|iterm2|sixel|blocks]")?,
         protocol,
         width,
         height,
@@ -77,7 +77,7 @@ fn parse_protocol(value: &str) -> Result<Protocol, String> {
 fn print_help() {
     println!(
         "Usage:
-  glbee MODEL.glb [--protocol auto|kitty|iterm2|sixel|blocks]
+  glbee MODEL [--protocol auto|kitty|iterm2|sixel|blocks]
 
 Options:
       --protocol P    Terminal image protocol (default: auto)

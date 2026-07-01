@@ -1,6 +1,7 @@
 # glbee
 
-`glbee` is a fast terminal 3D model previewer focused on GLB files.
+`glbee` is a fast terminal 3D model previewer focused on lightweight previews
+directly inside your terminal.
 
 It renders a 3D model directly inside your terminal, with mouse drag rotation,
 wheel zoom, keyboard controls, terminal image protocol detection, and a compact
@@ -8,7 +9,7 @@ status footer for render diagnostics.
 
 ## Features
 
-- Preview `.glb` models in the terminal.
+- Preview `.glb`, `.gltf`, `.obj`, and binary `.fbx` models in the terminal.
 - Rotate with mouse drag or arrow keys.
 - Zoom with mouse wheel or `+` / `-`.
 - Supports multiple terminal image protocols:
@@ -142,8 +143,21 @@ GLBEE_CELL_WIDTH=10 GLBEE_CELL_HEIGHT=20 glbee model.glb
 
 ## Current Scope
 
-GLB is the primary supported format. Other 3D formats can be added later by
-converting them into the same internal triangle and texture representation.
+Supported formats:
+
+- `.glb` / `.gltf`: geometry, normals, UVs, material colors, and base color textures.
+- `.obj`: geometry, normals, UVs, triangulated polygon faces, `.mtl` material
+  colors, and PNG/JPEG diffuse textures.
+- `.fbx`: binary FBX geometry from `Vertices` and `PolygonVertexIndex` arrays,
+  with `LayerElementUV` UVs and an optional same-name `.png` texture.
+- `.3ds`: geometry, UVs, material colors, and bitmap texture references.
+- `.blend`: loads through Blender CLI when available, with same-name exported
+  model fallbacks.
+- `.usdz`: mesh geometry, polygon triangulation, UVs, and packaged PNG/JPEG
+  diffuse textures through `usdcat`.
+
+Other 3D formats can be added later by converting them into the same internal
+triangle and texture representation.
 
 ## License
 

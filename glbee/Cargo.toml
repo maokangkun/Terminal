@@ -1,6 +1,6 @@
 [package]
 name = "glbee"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 description = "Fast terminal previewer for GLB/3D files"
 license = "Apache-2.0"
@@ -9,7 +9,9 @@ readme = "README.md"
 
 [dependencies]
 crossterm = "0.29"
+flate2 = "1.1"
 gltf = { version = "1.4", features = ["import"] }
+jpeg-decoder = "0.3"
 libc = "0.2"
 png = "0.17"
 

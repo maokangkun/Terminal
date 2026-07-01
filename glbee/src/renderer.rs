@@ -163,7 +163,9 @@ fn raster_triangle(
                 v[0].uv[1] * b0 + v[1].uv[1] * b1 + v[2].uv[1] * b2,
             ];
             let color = texture
-                .map(|texture| multiply_rgb(sample_texture(texture, uv), base))
+                .map(|texture| {
+                    enhance_texture_color(multiply_rgb(sample_texture(texture, uv), base))
+                })
                 .unwrap_or(base);
             pixels[offset] = Some(scale_rgb(soft_lift_dark_color(color), shade));
         }
@@ -192,9 +194,33 @@ fn sample_texture(texture: &Texture, uv: [f32; 2]) -> Rgb {
     }
     let u = uv[0].rem_euclid(1.0);
     let v = uv[1].rem_euclid(1.0);
-    let x = ((u * texture.width as f32).floor() as usize).min(texture.width - 1);
-    let y = (((1.0 - v) * texture.height as f32).floor() as usize).min(texture.height - 1);
-    texture.pixels[y * texture.width + x]
+    let x = u * (texture.width.saturating_sub(1)) as f32;
+    let y = (1.0 - v) * (texture.height.saturating_sub(1)) as f32;
+    let x0 = x.floor() as usize;
+    let y0 = y.floor() as usize;
+    let x1 = (x0 + 1).min(texture.width - 1);
+    let y1 = (y0 + 1).min(texture.height - 1);
+    let tx = x - x0 as f32;
+    let ty = y - y0 as f32;
+    let top = mix_rgb(
+        texture.pixels[y0 * texture.width + x0],
+        texture.pixels[y0 * texture.width + x1],
+        tx,
+    );
+    let bottom = mix_rgb(
+        texture.pixels[y1 * texture.width + x0],
+        texture.pixels[y1 * texture.width + x1],
+        tx,
+    );
+    mix_rgb(top, bottom, ty)
+}
+
+fn mix_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    Rgb {
+        r: (a.r as f32 + (b.r as f32 - a.r as f32) * t).round() as u8,
+        g: (a.g as f32 + (b.g as f32 - a.g as f32) * t).round() as u8,
+        b: (a.b as f32 + (b.b as f32 - a.b as f32) * t).round() as u8,
+    }
 }
 
 fn multiply_rgb(a: Rgb, b: Rgb) -> Rgb {
@@ -202,6 +228,20 @@ fn multiply_rgb(a: Rgb, b: Rgb) -> Rgb {
         r: ((a.r as u16 * b.r as u16) / 255) as u8,
         g: ((a.g as u16 * b.g as u16) / 255) as u8,
         b: ((a.b as u16 * b.b as u16) / 255) as u8,
+    }
+}
+
+fn enhance_texture_color(color: Rgb) -> Rgb {
+    let luma = 0.2126 * color.r as f32 + 0.7152 * color.g as f32 + 0.0722 * color.b as f32;
+    let lift = if luma < 58.0 {
+        (58.0 - luma) * 0.18
+    } else {
+        0.0
+    };
+    Rgb {
+        r: (color.r as f32 + lift).clamp(0.0, 255.0) as u8,
+        g: (color.g as f32 + lift).clamp(0.0, 255.0) as u8,
+        b: (color.b as f32 + lift).clamp(0.0, 255.0) as u8,
     }
 }
 
