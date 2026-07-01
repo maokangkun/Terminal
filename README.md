@@ -33,6 +33,26 @@ and the terminal.
 
 Read more: [`sixrs/README.md`](sixrs/README.md)
 
+### glbee
+
+[`glbee/`](glbee/) is a fast Rust terminal 3D model previewer, published on
+crates.io as `glbee`.
+
+It previews `.glb`, `.gltf`, `.obj`, binary `.fbx`, `.3ds`, `.blend`, and
+`.usdz` models directly in the terminal with mouse drag rotation, wheel zoom,
+keyboard controls, tmux-aware image output, and automatic protocol detection for
+Sixel, Kitty graphics, iTerm2 inline images, and ANSI truecolor blocks.
+
+Install it from crates.io:
+
+https://github.com/user-attachments/assets/7a247eb1-aac9-42cb-a5d6-0dedcb267b94
+
+```bash
+cargo install glbee
+```
+
+Read more: [`glbee/README.md`](glbee/README.md)
+
 ## Themes
 
 This repository is currently exploring:
@@ -50,6 +70,7 @@ This repository is currently exploring:
 ```text
 .
 ├── geogebra/   terminal math graphing experiment
+├── glbee/      Rust terminal 3D model previewer
 ├── sixrs/      Rust terminal image backend
 └── asset/      shared sample assets
 ```
@@ -66,6 +87,12 @@ Run the graphing experiment:
 
 ```bash
 python3 geogebra/main.py
+```
+
+Install the 3D model previewer:
+
+```bash
+cargo install glbee
 ```
 
 See each experiment's README for its own dependencies and details.
