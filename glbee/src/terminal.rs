@@ -1,5 +1,6 @@
 use std::env;
 use std::io::{self, Write};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crossterm::cursor::{Hide, MoveTo, Show};
@@ -47,7 +48,11 @@ pub fn interactive_loop(
     let mut stats = FrameStats::default();
 
     'outer: loop {
-        if !dirty && !refined && last_interaction.elapsed() >= SETTLE_DELAY {
+        if !dirty
+            && !refined
+            && should_refine_after_interaction(protocol, configured_width, configured_height)
+            && last_interaction.elapsed() >= SETTLE_DELAY
+        {
             dirty = true;
         }
 
@@ -99,7 +104,8 @@ pub fn interactive_loop(
             end_synchronized_update(&mut stdout)?;
             stdout.flush().map_err(|err| err.to_string())?;
             dirty = false;
-            refined = quality == RenderQuality::Full;
+            refined = quality == RenderQuality::Full
+                || !should_refine_after_interaction(protocol, configured_width, configured_height);
             last_draw = Instant::now();
         }
 
@@ -299,6 +305,7 @@ pub fn render_target(
 #[derive(Clone, Copy, Debug)]
 pub enum PixelSource {
     Terminal,
+    Tmux,
     Fallback,
     Manual,
 }
@@ -307,6 +314,7 @@ impl PixelSource {
     fn name(self) -> &'static str {
         match self {
             PixelSource::Terminal => "terminal",
+            PixelSource::Tmux => "tmux",
             PixelSource::Fallback => "fallback",
             PixelSource::Manual => "manual",
         }
@@ -350,11 +358,40 @@ fn resolve_cell_size(
         }
     }
 
+    if let Some((cell_width, cell_height)) = tmux_client_cell_size() {
+        return (cell_width, cell_height, PixelSource::Tmux);
+    }
+
     (
         FALLBACK_CELL_WIDTH,
         FALLBACK_CELL_HEIGHT,
         PixelSource::Fallback,
     )
+}
+
+fn tmux_client_cell_size() -> Option<(usize, usize)> {
+    if !running_in_tmux() {
+        return None;
+    }
+    let output = Command::new("tmux")
+        .args([
+            "display-message",
+            "-p",
+            "#{client_cell_width} #{client_cell_height}",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let mut parts = text.split_whitespace();
+    let cell_width = parts.next()?.parse::<usize>().ok()?;
+    let cell_height = parts.next()?.parse::<usize>().ok()?;
+    if cell_width < MIN_REASONABLE_CELL_WIDTH || cell_height < MIN_REASONABLE_CELL_HEIGHT {
+        return None;
+    }
+    Some((cell_width, cell_height))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -399,6 +436,23 @@ fn render_quality(
     } else {
         RenderQuality::Full
     }
+}
+
+fn should_refine_after_interaction(
+    protocol: Protocol,
+    configured_width: Option<usize>,
+    configured_height: Option<usize>,
+) -> bool {
+    configured_width.is_none()
+        && configured_height.is_none()
+        && matches!(
+            protocol,
+            Protocol::Kitty | Protocol::Iterm2 | Protocol::Sixel
+        )
+}
+
+fn running_in_tmux() -> bool {
+    env::var_os("TMUX").is_some()
 }
 
 fn target_for_quality(mut target: RenderTarget, quality: RenderQuality) -> RenderTarget {
@@ -558,12 +612,18 @@ fn write_at<W: Write>(output: &mut W, x: usize, y: usize, text: &str) -> Result<
 }
 
 fn begin_synchronized_update<W: Write>(output: &mut W) -> Result<(), String> {
+    if running_in_tmux() {
+        return Ok(());
+    }
     output
         .write_all(b"\x1b[?2026h")
         .map_err(|err| err.to_string())
 }
 
 fn end_synchronized_update<W: Write>(output: &mut W) -> Result<(), String> {
+    if running_in_tmux() {
+        return Ok(());
+    }
     output
         .write_all(b"\x1b[?2026l")
         .map_err(|err| err.to_string())
@@ -641,20 +701,27 @@ fn parse_osc_rgb_component(raw: &str) -> Option<u8> {
 
 struct TerminalSession {
     active: bool,
+    tmux_status: Option<String>,
 }
 
 impl TerminalSession {
     fn enter() -> Result<Self, String> {
         terminal::enable_raw_mode().map_err(|err| err.to_string())?;
-        execute!(
+        let tmux_status = hide_tmux_status();
+        if let Err(err) = execute!(
             io::stdout(),
             EnterAlternateScreen,
             Clear(ClearType::All),
             EnableMouseCapture,
             Hide
-        )
-        .map_err(|err| err.to_string())?;
-        Ok(Self { active: true })
+        ) {
+            restore_tmux_status(tmux_status);
+            return Err(err.to_string());
+        }
+        Ok(Self {
+            active: true,
+            tmux_status,
+        })
     }
 
     fn leave(&mut self) -> Result<(), String> {
@@ -667,6 +734,7 @@ impl TerminalSession {
             )
             .map_err(|err| err.to_string())?;
             terminal::disable_raw_mode().map_err(|err| err.to_string())?;
+            restore_tmux_status(self.tmux_status.take());
             self.active = false;
         }
         Ok(())
@@ -676,6 +744,37 @@ impl TerminalSession {
 impl Drop for TerminalSession {
     fn drop(&mut self) {
         let _ = self.leave();
+    }
+}
+
+fn hide_tmux_status() -> Option<String> {
+    if !running_in_tmux() || env::var_os("GLBEE_TMUX_KEEP_STATUS").is_some() {
+        return None;
+    }
+    let output = Command::new("tmux")
+        .args(["show-option", "-qv", "status"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let original = String::from_utf8(output.stdout)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "on".to_string());
+    let status = Command::new("tmux")
+        .args(["set-option", "-q", "status", "off"])
+        .status()
+        .ok()?;
+    status.success().then_some(original)
+}
+
+fn restore_tmux_status(original: Option<String>) {
+    if let Some(value) = original {
+        let _ = Command::new("tmux")
+            .args(["set-option", "-q", "status", &value])
+            .status();
     }
 }
 

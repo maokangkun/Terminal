@@ -86,6 +86,36 @@ For best visual quality and speed, use a terminal with Kitty graphics or sixel
 support. The block fallback works nearly everywhere but has lower spatial
 resolution.
 
+## tmux
+
+Terminal image protocols usually need tmux passthrough. If the frame and footer
+show up but the model image is missing inside tmux, enable passthrough:
+
+```tmux
+set -g allow-passthrough on
+```
+
+Reload tmux config:
+
+```sh
+tmux source-file ~/.tmux.conf
+```
+
+`glbee` automatically wraps Kitty, iTerm2, and sixel image sequences for tmux
+when the `TMUX` environment variable is present. It also uses tmux client cell
+size metadata and temporarily hides the tmux status line while running, which
+helps image previews persist reliably. To keep the status line visible:
+
+```sh
+GLBEE_TMUX_KEEP_STATUS=1 glbee model.glb
+```
+
+ANSI block rendering does not need passthrough:
+
+```sh
+glbee model.glb --protocol blocks
+```
+
 ## Performance Notes
 
 Terminal rendering has two costs:

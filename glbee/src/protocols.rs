@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::io::{self, Write};
 
 const ESC: &str = "\x1b";
@@ -72,9 +73,30 @@ pub fn write_image_to<W: Write>(
         Protocol::Blocks => pixels_to_blocks(image, placement),
         Protocol::Auto => unreachable!("protocol was resolved"),
     };
+    let text = wrap_for_tmux_if_needed(protocol, text);
     output
         .write_all(text.as_bytes())
         .map_err(|err| err.to_string())
+}
+
+fn wrap_for_tmux_if_needed(protocol: Protocol, text: String) -> String {
+    if env::var_os("TMUX").is_none() || matches!(protocol, Protocol::Blocks) {
+        return text;
+    }
+
+    let mut wrapped = String::with_capacity(text.len() + 16);
+    wrapped.push_str(ESC);
+    wrapped.push_str("Ptmux;");
+    for byte in text.bytes() {
+        if byte == 0x1b {
+            wrapped.push_str(ESC);
+            wrapped.push_str(ESC);
+        } else {
+            wrapped.push(byte as char);
+        }
+    }
+    wrapped.push_str(ST);
+    wrapped
 }
 
 fn pixels_to_kitty(image: &Image, placement: Option<Placement>) -> String {
