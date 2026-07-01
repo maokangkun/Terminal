@@ -7,6 +7,8 @@ It renders a 3D model directly inside your terminal, with mouse drag rotation,
 wheel zoom, keyboard controls, terminal image protocol detection, and a compact
 status footer for render diagnostics.
 
+https://github.com/user-attachments/assets/7a247eb1-aac9-42cb-a5d6-0dedcb267b94
+
 ## Features
 
 - Preview `.glb`, `.gltf`, `.obj`, and binary `.fbx` models in the terminal.
