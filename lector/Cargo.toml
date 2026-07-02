@@ -1,0 +1,33 @@
+[package]
+name = "lector-browser"
+version = "0.1.5"
+edition = "2024"
+description = "A high-performance graphical terminal web browser targeting Sixel first."
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/maokangkun/Terminal"
+homepage = "https://github.com/maokangkun/Terminal/tree/main/lector"
+documentation = "https://docs.rs/lector-browser"
+keywords = ["terminal", "browser", "sixel", "servo", "tui"]
+categories = ["command-line-utilities", "web-programming"]
+exclude = [
+    "vendor/servo/**",
+    "crates/lector-servo-native/target/**",
+]
+
+[dependencies]
+lector-servo-native = { version = "0.1.0", path = "crates/lector-servo-native", optional = true }
+
+[[bin]]
+name = "lector"
+path = "src/main.rs"
+
+[features]
+default = []
+servo-native = ["dep:lector-servo-native"]
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+strip = "symbols"

@@ -1,0 +1,82 @@
+name: Lector Release
+
+on:
+  push:
+    tags:
+      - "lector-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos-aarch64:
+    name: Build macOS arm64
+    runs-on: macos-14
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_tag: lector-v${{ steps.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: lector
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            lector/target
+          key: lector-cargo-${{ runner.os }}-aarch64-${{ hashFiles('lector/Cargo.lock', 'lector/crates/lector-servo-native/Cargo.lock') }}
+
+      - name: Fetch Servo
+        run: ./scripts/fetch-servo.sh
+
+      - name: Build archive
+        env:
+          TARGET: aarch64-apple-darwin
+        run: ./scripts/package-release.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lector-macos-aarch64
+          path: |
+            lector/dist/*.tar.gz
+            lector/dist/*.sha256
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-macos-aarch64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || needs.build-macos-aarch64.outputs.release_tag }}
+          name: Lector ${{ needs.build-macos-aarch64.outputs.version }}
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.sha256
+          draft: false
+          prerelease: false

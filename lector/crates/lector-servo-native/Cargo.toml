@@ -1,0 +1,13 @@
+[package]
+name = "lector-servo-native"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+servo = { path = "../../vendor/servo/components/servo", default-features = false, features = ["baked-in-resources", "js_jit"] }
+dpi = "0.1"
+euclid = "0.22"
+url = "2"
+webrender_api = "0.69"
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
